@@ -169,9 +169,9 @@
     "output_changes": {
         "test": {
             "actions": [
-                "create"
+                "no-op"
             ],
-            "before": null,
+            "before": "baz",
             "after": "baz",
             "after_unknown": false
         }
