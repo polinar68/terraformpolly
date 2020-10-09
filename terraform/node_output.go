@@ -364,15 +364,25 @@ func (n *NodeDestroyableOutput) Execute(ctx EvalContext, op walkOperation) error
 		return nil
 	}
 
+	// if this is a root module, try to get a before value from the state for
+	// the diff
+	before := cty.NullVal(cty.DynamicPseudoType)
+	mod := state.Module(n.Addr.Module)
+	if n.Addr.Module.IsRoot() && mod != nil {
+		for name, o := range mod.OutputValues {
+			if name == n.Addr.OutputValue.Name {
+				before = o.Value
+			}
+		}
+	}
+
 	changes := ctx.Changes()
 	if changes != nil {
 		change := &plans.OutputChange{
 			Addr: n.Addr,
 			Change: plans.Change{
-				// FIXME: Generate real planned changes for output values
-				// that include the old values.
 				Action: plans.Delete,
-				Before: cty.NullVal(cty.DynamicPseudoType),
+				Before: before,
 				After:  cty.NullVal(cty.DynamicPseudoType),
 			},
 		}
@@ -420,37 +430,36 @@ func (n *NodeApplyableOutput) setValue(state *states.SyncState, changes *plans.C
 	// there. This is used in preference to the state where present, since it
 	// *is* able to represent unknowns, while the state cannot.
 	if changes != nil {
-		// For the moment we are not properly tracking changes to output
-		// values, and just marking them always as "Create" or "Destroy"
-		// actions. A future release will rework the output lifecycle so we
-		// can track their changes properly, in a similar way to how we work
-		// with resource instances.
+		// if this is a root module, try to get a before value from the state for
+		// the diff
+		before := cty.NullVal(cty.DynamicPseudoType)
+		mod := state.Module(n.Addr.Module)
+		if n.Addr.Module.IsRoot() && mod != nil {
+			for name, o := range mod.OutputValues {
+				if name == n.Addr.OutputValue.Name {
+					before = o.Value
+				}
+			}
+		}
 
-		var change *plans.OutputChange
-		if !val.IsNull() {
-			change = &plans.OutputChange{
-				Addr:      n.Addr,
-				Sensitive: n.Config.Sensitive,
-				Change: plans.Change{
-					Action: plans.Create,
-					Before: cty.NullVal(cty.DynamicPseudoType),
-					After:  val,
-				},
-			}
-		} else {
-			change = &plans.OutputChange{
-				Addr:      n.Addr,
-				Sensitive: n.Config.Sensitive,
-				Change: plans.Change{
-					// This is just a weird placeholder delete action since
-					// we don't have an actual prior value to indicate.
-					// FIXME: Generate real planned changes for output values
-					// that include the old values.
-					Action: plans.Delete,
-					Before: cty.NullVal(cty.DynamicPseudoType),
-					After:  cty.NullVal(cty.DynamicPseudoType),
-				},
-			}
+		var action plans.Action
+		switch {
+		case val.IsNull():
+			action = plans.Delete
+		case before.IsNull():
+			action = plans.Create
+		default:
+			action = plans.Update
+		}
+
+		change := &plans.OutputChange{
+			Addr:      n.Addr,
+			Sensitive: n.Config.Sensitive,
+			Change: plans.Change{
+				Action: action,
+				Before: before,
+				After:  val,
+			},
 		}
 
 		cs, err := change.Encode()
