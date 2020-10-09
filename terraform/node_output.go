@@ -448,6 +448,8 @@ func (n *NodeApplyableOutput) setValue(state *states.SyncState, changes *plans.C
 			action = plans.Delete
 		case before.IsNull():
 			action = plans.Create
+		case val.IsWhollyKnown() && val.Equals(before).True():
+			action = plans.NoOp
 		default:
 			action = plans.Update
 		}
